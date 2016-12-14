@@ -232,7 +232,10 @@ def start (mode)
     if !$parameters[:retry]
       puts "Won't retry inbound straw connection"
       break
+    else
+      puts "Retrying connections..."
     end
+
   }
 
 end
