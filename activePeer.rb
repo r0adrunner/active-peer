@@ -15,13 +15,13 @@ $parameters = {}
 opt_parser = OptionParser.new do |opts|
   opts.banner = "Usage: activePeer.rb <ACTIVE|PASSIVE> [options]"
 
-  opts.on('-ip', '--inPort PORT', 'Port of the incoming straw') { |v| $parameters[:in_port] = v.to_i }
+  opts.on('-ip', '--inPort PORT', 'Port of the inbound straw') { |v| $parameters[:in_port] = v.to_i }
 
   opts.on('-ia', '--inAddr ADDR', 'Address of the inbound straw') { |v| $parameters[:in_addr] = v }
 
   opts.on('-op', '--outPort PORT', 'Port of the outbound straw') { |v| $parameters[:out_port] = v.to_i }
 
-  opts.on('-oa', '--outAddr ADDR', 'Address of the outgoing straw') { |v| $parameters[:out_addr] = v }
+  opts.on('-oa', '--outAddr ADDR', 'Address of the outbound straw') { |v| $parameters[:out_addr] = v }
 
   opts.on('-a', '--aggressive', 'Attempt to establish the connection repeatedly (only for active mode)') { |v| $parameters[:aggressive] = v }
 
