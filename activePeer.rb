@@ -29,9 +29,6 @@ opt_parser = OptionParser.new do |opts|
 
   opts.on('-oi', '--outInterval INTERVAL', 'Interval used for aggressive outbound straw connection attempt') { |v| $parameters[:out_interval] = v.to_i }
 
-  # Todo:
-  # opts.on('-e', '--resilient', 'Do not drop other straw if one breaks.) { |v| $parameters[:resilient] = v }
-
   opts.on('-r', '--reestablish', 'Try connecting again after the connection was broken') { |v| $parameters[:reestablish] = v }
 
   opts.on('-h', '--help', 'Prints this help') { puts opts }
@@ -250,22 +247,26 @@ class SocketController
       socket_on_terminate_o
   end
 
-  def socket_on_terminate_i
-    # Todo: avoid closing connections reciprocally
+  @didIHangup = false
 
-    # if !$parameters[:resilient]
-    #   puts "Closing outb. connection because resilient == false"
-    #   @outSock.close
-    # end
+  def socket_on_terminate_i
+    if !@didIHangup
+      puts "Closing outb. connection because the other one dropped"
+      @didIHangup = true       
+      @outSock.close
+    else
+      @didIHangup = false
+    end
   end
 
   def socket_on_terminate_o
-    # Todo: avoid closing connections reciprocally
-
-    # if !$parameters[:resilient]
-    #   puts "Closing inb. connection because resilient == false"
-    #   @inSock.close
-    # end
+    if !@didIHangup
+      puts "Closing inb. connection because the other one dropped"
+      @didIHangup = true                
+      @inSock.close
+    else
+      @didIHangup = false
+    end
   end
 
   def reestablishing
