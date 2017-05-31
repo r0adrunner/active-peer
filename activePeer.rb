@@ -51,6 +51,7 @@ if !$parameters.key?(:tun_interval)
   $parameters[:tun_interval] = 0
 end
 
+# Loop to reestablish connection would be too short with tun_interval == 0
 # Todo: bad code
 if $parameters[:reestablish] && ($parameters[:tun_interval] < 1)
   $parameters[:tun_interval] = 1
