@@ -15,19 +15,12 @@ You then run the same script in the source that opens two listening sockets: one
 In the target machine, you set it up so it tries to connect (active mode) to the source machine, and to the application (assumed to be running on localhost by default):
 
 ```
-./activePeer.rb ACTIVE -ar --inPort 20002 --inAddr x.x.x.x --outPort 14123 
+./activePeer.rb ACTIVE -r --tunnelAddr x.x.x.x --tunnelPort 15002 --tunnelInterval 5 --appPort 14123
+
 ```
 
 In the source machine, you start two listening sockets (passive mode):
 
 ```
-./activePeer.rb PASSIVE -r --inPort 15002 --outPort 20002 --outAddr x.x.x.x
+./activePeer.rb PASSIVE -r --tunnelAddr y.y.y.y --tunnelPort 15002 --appPort 20002
 ```
-
-The 'in' and 'out' addresses/ports refers to the remote machine and the local application, and can be used interchangeably, as the script just pipes data from one connection to another.
-
-
-## Todo
-
-* Write this readme in a way that is understandable by not just me
-* Use better analogy to 'in' and 'out' connections

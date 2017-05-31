@@ -6,8 +6,6 @@ require "socket"
 require 'optparse'
 
 BUFFER_SIZE = 1024 * 2
-DEFAULT_IN_INTERVAL = 5            # Seconds
-DEFAULT_OUT_INTERVAL = 5            # Seconds
 
 # Parameters parsing ===================================================================
 
@@ -15,21 +13,19 @@ $parameters = {}
 opt_parser = OptionParser.new do |opts|
   opts.banner = "Usage: activePeer.rb <ACTIVE|PASSIVE> [options]"
 
-  opts.on('-ip', '--inPort PORT', 'Port of the inbound straw') { |v| $parameters[:in_port] = v.to_i }
+  opts.on('-tp', '--tunnelPort PORT', 'Port of the tunnel connection') { |v| $parameters[:tun_port] = v.to_i }
 
-  opts.on('-ia', '--inAddr ADDR', 'Address of the inbound straw') { |v| $parameters[:in_addr] = v }
+  opts.on('-ta', '--tunnelAddr ADDR', 'Address of the tunnel connection') { |v| $parameters[:tun_addr] = v }
 
-  opts.on('-op', '--outPort PORT', 'Port of the outbound straw') { |v| $parameters[:out_port] = v.to_i }
+  opts.on('-ap', '--appPort PORT', 'Port of the connection to the application') { |v| $parameters[:app_port] = v.to_i }
 
-  opts.on('-oa', '--outAddr ADDR', 'Address of the outbound straw') { |v| $parameters[:out_addr] = v }
+  opts.on('-aa', '--appAddr ADDR', 'Address of the connection to the application') { |v| $parameters[:app_addr] = v }
 
-  opts.on('-a', '--aggressive', 'Attempt to establish the connection repeatedly (only for active mode)') { |v| $parameters[:aggressive] = v }
+  opts.on('-ti', '--tunnelInterval INTERVAL', 'Interval in seconds to wait between tunnel connection attempts. If this value is zero, try to connect only once and quit on fail. Default = 0') { |v| $parameters[:tun_interval] = v.to_i }
 
-  opts.on('-ii', '--inInterval INTERVAL', 'Interval used for aggressive inbound straw connection attempt') { |v| $parameters[:in_interval] = v.to_i }
+  opts.on('-ai', '--appInterval INTERVAL', 'Interval in seconds to wait between app connection attempts. If this value is zero, try to connect only once and quit on fail. Default = 0') { |v| $parameters[:app_interval] = v.to_i }
 
-  opts.on('-oi', '--outInterval INTERVAL', 'Interval used for aggressive outbound straw connection attempt') { |v| $parameters[:out_interval] = v.to_i }
-
-  opts.on('-r', '--reestablish', 'Try connecting again after the connection was broken') { |v| $parameters[:reestablish] = v }
+  opts.on('-r', '--reestablish', 'Restablish tunnel connection again if it breaks') { |v| $parameters[:reestablish] = v }
 
   opts.on('-h', '--help', 'Prints this help') { puts opts }
 
@@ -43,20 +39,25 @@ opt_parser.parse!
 
 # Defaults
 
-if !$parameters.key?(:in_addr)
-  $parameters[:in_addr] = "127.0.0.1"
+if !$parameters.key?(:app_addr)
+  $parameters[:app_addr] = "127.0.0.1"
 end
 
-if !$parameters.key?(:out_addr)
-  $parameters[:out_addr] = "127.0.0.1"
+if !$parameters.key?(:tun_addr)
+  $parameters[:tun_addr] = "127.0.0.1"
 end
 
-if !$parameters.key?(:out_interval)
-  $parameters[:out_interval] = DEFAULT_OUT_INTERVAL
+if !$parameters.key?(:tun_interval)
+  $parameters[:tun_interval] = 0
 end
 
-if !$parameters.key?(:in_interval)
-  $parameters[:in_interval] = DEFAULT_IN_INTERVAL
+# Todo: bad code
+if $parameters[:reestablish] && ($parameters[:tun_interval] < 1)
+  $parameters[:tun_interval] = 1
+end
+
+if !$parameters.key?(:app_interval)
+  $parameters[:app_interval] = 0
 end
 
 # Sockets ===================================================================
@@ -110,9 +111,12 @@ end
 
 class Server
 
-  def connect( port, addr )
+  @on_accept = nil
+
+  def connect( port, addr , &onaccept)
     @server = nil
     @client = nil
+    @on_accept = onaccept
 
     @server = TCPServer.open( addr, port )
     @serverinfo = @server.addr.inspect
@@ -127,6 +131,11 @@ class Server
       puts("Interrupt")
       exit
     end
+
+    if @on_accept != nil
+      @on_accept.call
+    end
+
   end
 
   def listen
@@ -169,24 +178,27 @@ class Server
     @client.flush
   end
 
+  # end class server
 end
 
 # =======================================================================================
 
 class SocketController
 
-  @inSock = nil
-  @outSock = nil
+  @tunSock = nil
+  @appSock = nil
+  @didIHangup = false
 
   def try_connect (interval)
-    if $parameters[:aggressive]
+    # interval should be tunnel interval. if zero, try only once
+    if interval != 0
       loop {
         begin
           yield
-          return
+          return true
         rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::EINPROGRESS
         rescue Errno::EISCONN
-          return
+          return false
         end
 
         begin
@@ -197,73 +209,86 @@ class SocketController
         end
       }
     else
-      yield
-    end
-  end
-
-  def listen_socket_i ()
-    @inSock.listen do |data|
-      if @outSock == nil
-        abort ("Trying to send data to a closed socket. Exiting")
+    # if interval = zero, try only once      
+      begin 
+        yield
+        return true
+      rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::EINPROGRESS, Errno::EISCONN
+        return false
       end
-      @outSock.send data
     end
   end
 
-  def listen_socket_o ()
-    @outSock.listen do |data|
-      if @inSock == nil
-        abort ("Trying to send data to a closed socket. Exiting")
+  def listen_tun_socket ()
+    @tunSock.listen do |data|
+      if @appSock == nil
+        abort ("Trying to send data to a closed app socket. Exiting")
       end
-      @inSock.send data
+      @appSock.send data
     end
   end
 
-  def do_socket_ip
-      @inSock = Server.new
-      @inSock.connect($parameters[:in_port], $parameters[:in_addr])
-      listen_socket_i
-      socket_on_terminate_i
+  def listen_app_socket ()
+    @appSock.listen do |data|
+      if @tunSock == nil
+        abort ("Trying to send data to a closed tunnel socket. Exiting")
+      end
+      @tunSock.send data
+    end
   end
 
-  def do_socket_op
-      @outSock = Server.new
-      @outSock.connect($parameters[:out_port], $parameters[:out_addr])
-      listen_socket_o
-      socket_on_terminate_o
+  def do_tunnel_server (&on_accept)
+    @tunSock = Server.new
+    @tunSock.connect($parameters[:tun_port], $parameters[:tun_addr]) do
+      on_accept.call
+    end
+    listen_tun_socket
+    tun_socket_on_terminate
   end
 
-  def do_socket_ia
-      @inSock = Client.new
-      try_connect ($parameters[:in_interval]) {@inSock.connect($parameters[:in_port], $parameters[:in_addr])}
-      listen_socket_i
-      socket_on_terminate_i
+  def do_app_server
+    @appSock = Server.new
+    @appSock.connect($parameters[:app_port], $parameters[:app_addr]) {}
+    listen_app_socket
+    app_socket_on_terminate
   end
 
-  def do_socket_oa
-      @outSock = Client.new
-      try_connect ($parameters[:out_interval]) {@outSock.connect($parameters[:out_port], $parameters[:out_addr])}
-      listen_socket_o
-      socket_on_terminate_o
+  def do_tunnel_client (&on_connect)
+    @tunSock = Client.new
+    if try_connect ($parameters[:tun_interval]) {@tunSock.connect($parameters[:tun_port], $parameters[:tun_addr])}
+      on_connect.call
+      listen_tun_socket
+    end
+    tun_socket_on_terminate
   end
 
-  @didIHangup = false
+  def do_app_client
+    @appSock = Client.new
+    if try_connect ($parameters[:app_interval]) {@appSock.connect($parameters[:app_port], $parameters[:app_addr])}
+      listen_app_socket
+    end
+    app_socket_on_terminate
+  end
 
-  def socket_on_terminate_i
+  def app_socket_on_terminate
     if !@didIHangup
-      puts "Closing outb. connection because the other one dropped"
+      puts "Closing tunnel connection"
       @didIHangup = true       
-      @outSock.close
+      if @tunSock != nil
+        @tunSock.close
+      end
     else
       @didIHangup = false
     end
   end
 
-  def socket_on_terminate_o
+  def tun_socket_on_terminate
     if !@didIHangup
-      puts "Closing inb. connection because the other one dropped"
+      puts "Closing app connection"
       @didIHangup = true                
-      @inSock.close
+      if @appSock != nil
+        @appSock.close
+      end
     else
       @didIHangup = false
     end
@@ -283,36 +308,31 @@ class SocketController
 
   def start (mode)
 
-      threads = []
-
-      # Start inbound socket
-      threads << Thread.new do
-        reestablishing do
-          if mode == :active
-            do_socket_ia
-          elsif mode == :passive
-            do_socket_ip
+    if mode == :active
+      reestablishing do
+        do_tunnel_client do
+          # on connect:
+          Thread.new do
+            sleep 0.1
+            do_app_client
           end
         end
       end
-
-      sleep 0.1
-
-      # Start outbound socket
-      threads << Thread.new do
-        reestablishing do
-          if mode == :active
-            do_socket_oa
-          elsif mode == :passive
-            do_socket_op
+    elsif mode == :passive
+      reestablishing do
+        do_tunnel_server do
+          # on accept:
+          Thread.new do
+            sleep 0.1
+            do_app_server
           end
         end
       end
-
-      threads.each { |thr| thr.join }
+    end
 
   end
 
+  # end class socketcontroller
 end
 
 # Main =================================================================================
