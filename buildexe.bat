@@ -1,1 +1,1 @@
-ruby ocrasa.rb --no-lzma activePeer.rb
+ocra activePeer.rb
