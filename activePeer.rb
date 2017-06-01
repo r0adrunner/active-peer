@@ -93,7 +93,7 @@ class Client
   end
 
   def is_closed?
-    @server == nil
+    @server == nil || @server.closed?
   end
 
   def close
@@ -163,12 +163,12 @@ class Server
   end
 
   def is_closed?
-    @server == nil || @client == nil
+    @server == nil || @client == nil || @server.closed? || @client.closed?
   end
 
   def close
-    @client.close if @client != nil
-    @server.close if @server != nil    
+    @client.close if (@client != nil && !@client.closed?)
+    @server.close if (@server != nil && !@server.closed?)
     @client = nil
     @server = nil
   end
