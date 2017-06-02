@@ -103,7 +103,9 @@ class Client
   end
   
   def send (data)
-    if is_closed? then abort ("Attempt to send data to a closed socket. Exiting") end
+    while (is_closed?) do
+      sleep 1
+    end
     @server.write data
     @server.flush
   end
@@ -174,7 +176,9 @@ class Server
   end
 
   def send (data)
-    if is_closed? then abort ("Attempt to send data to a closed socket. Exiting") end
+    while (is_closed?) do
+      sleep 1
+    end
     @client.write data
     @client.flush
   end
