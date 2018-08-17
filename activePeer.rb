@@ -66,7 +66,6 @@ end
 class Client
 
   def connect( port, addr )
-    @server = nil
     @server = TCPSocket.open( addr, port )
     @serverinfo = @server.addr.inspect + " Remote port: " + port.to_s
     puts "Connected:"
