@@ -317,7 +317,7 @@ class SocketController
         do_tunnel_client do
           # on connect:
           Thread.new do
-            sleep 0.1
+            # sleep 0.1
             do_app_client
           end
         end
@@ -327,7 +327,7 @@ class SocketController
         do_tunnel_server do
           # on accept:
           Thread.new do
-            sleep 0.1
+            # sleep 0.1
             do_app_server
           end
         end
